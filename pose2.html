@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>疊影對位相機</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#000;--fg:#fff;--panel:rgba(20,20,24,.78);--accent:#ff5a8a}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,"PingFang TC","Noto Sans TC",sans-serif;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+#stage{position:absolute;inset:0;overflow:hidden}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#ov{position:absolute;left:50%;top:50%;transform-origin:0 0;pointer-events:none;display:none}
+#ov img,#ov canvas{position:absolute;left:0;top:0;max-width:none}
+#grid{position:absolute;inset:0;pointer-events:none;display:none;background:
+linear-gradient(to right,transparent 33.2%,rgba(255,255,255,.4) 33.3%,transparent 33.5%,transparent 66.5%,rgba(255,255,255,.4) 66.6%,transparent 66.8%),
+linear-gradient(to bottom,transparent 33.2%,rgba(255,255,255,.4) 33.3%,transparent 33.5%,transparent 66.5%,rgba(255,255,255,.4) 66.6%,transparent 66.8%)}
+#top{position:absolute;left:0;right:0;top:env(safe-area-inset-top,0px);display:flex;gap:6px;padding:10px;justify-content:space-between;flex-wrap:wrap}
+.btn{background:var(--panel);color:var(--fg);border:0;border-radius:20px;padding:9px 13px;font-size:14px;backdrop-filter:blur(8px)}
+.btn.on{background:var(--accent)}
+#badge{position:absolute;left:16px;right:16px;top:calc(env(safe-area-inset-top,0px) + 108px);margin:auto;width:fit-content;max-width:90%;background:var(--panel);padding:8px 14px;border-radius:14px;font-size:14px;line-height:1.5;display:none;text-align:center}
+#bar{position:absolute;left:0;right:0;bottom:0;padding:10px 14px calc(14px + env(safe-area-inset-bottom,0px));background:linear-gradient(transparent,rgba(0,0,0,.7))}
+#row1{display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:13px}
+#row1 input{flex:1;accent-color:var(--accent)}
+#row2{display:flex;align-items:center;justify-content:space-around}
+#shot{width:68px;height:68px;border-radius:50%;border:4px solid #fff;background:rgba(255,255,255,.25)}
+#shot:active{background:#fff}
+#msg{position:absolute;left:20px;right:20px;top:40%;text-align:center;background:var(--panel);padding:16px;border-radius:14px;font-size:15px;line-height:1.6;display:none}
+#lc{position:absolute;inset:0;pointer-events:none}
+#modes{display:none;gap:6px;justify-content:center;margin-bottom:10px;flex-wrap:wrap}
+#score{position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 62px);transform:translateX(-50%);background:var(--panel);padding:6px 14px;border-radius:16px;font-size:14px;display:none;white-space:nowrap}
+#sheet{position:absolute;left:0;right:0;bottom:0;height:60%;background:rgba(15,15,18,.97);border-radius:18px 18px 0 0;display:none;flex-direction:column;z-index:4;touch-action:pan-y;padding-bottom:env(safe-area-inset-bottom,0px)}
+#tabs{display:flex;gap:6px;padding:12px;align-items:center}
+#tabs .btn{background:#2a2a30}
+#tabs .btn.on{background:var(--accent)}
+#list{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:0 12px 20px;align-content:start;-webkit-overflow-scrolling:touch}
+.card{background:#222;border-radius:10px;padding:6px;text-align:center;font-size:12px}
+.card canvas{width:100%;aspect-ratio:5/7;border-radius:6px;background:#2a2a30;display:block;margin-bottom:4px}
+#res{position:absolute;inset:0;background:#000;display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;touch-action:auto;z-index:5}
+#res img{max-width:92%;max-height:75%;border-radius:8px;-webkit-user-select:auto;user-select:auto;-webkit-touch-callout:default}
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="v" autoplay playsinline muted></video>
+  <div id="grid"></div>
+  <div id="ov"><img id="oi" alt=""><canvas id="rc"></canvas><canvas id="sk"></canvas></div>
+  <canvas id="lc"></canvas>
+</div>
+<div id="top">
+  <button class="btn" id="lib">📐 姿勢庫</button>
+  <button class="btn" id="pick">🖼 參考圖</button>
+  <button class="btn on" id="live">即時骨架</button>
+  <button class="btn" id="gridBtn">井字格</button>
+  <button class="btn" id="flip">翻轉</button>
+  <button class="btn" id="cam">🔄</button>
+</div>
+<div id="score"></div>
+<div id="badge"></div>
+<div id="msg"></div>
+<div id="bar">
+  <div id="modes"><button class="btn" data-m="photo">照片</button><button class="btn on" data-m="both">照片+骨架</button><button class="btn" data-m="skel">只看骨架</button></div>
+  <div id="row1"><span>透明度</span><input type="range" id="op" min="10" max="100" value="70"><span id="opv">70%</span></div>
+  <div id="row2">
+    <button class="btn" id="reset">重置位置</button>
+    <button id="shot" aria-label="拍照"></button>
+    <button class="btn" id="hide">按住對比</button>
+  </div>
+  <div style="text-align:center;font-size:12px;opacity:.75;margin-top:8px">單指拖曳 · 雙指縮放旋轉</div>
+</div>
+<div id="sheet"><div id="tabs"></div><div id="list"></div></div>
+<div id="res"><img id="ri" alt=""><div style="font-size:14px">長按照片 → 儲存到相簿</div><button class="btn" id="back">← 繼續拍</button></div>
+<input type="file" id="file" accept="image/*" hidden>
+<script type="module">
+import {PoseLandmarker,FilesetResolver} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm";
+const $=id=>document.getElementById(id);
+const v=$('v'),ov=$('ov'),oi=$('oi'),rc=$('rc'),msg=$('msg'),badge=$('badge');
+let facing='environment',stream=null,flipped=false,hasImg=false,refW=1000,refH=1400,tipT=null;
+let S={x:0,y:0,s:1,r:0},W=innerWidth,H=innerHeight;
+const lc=$('lc'),sk=$('sk'),score=$('score');
+const WASM="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const MODEL="https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task";
+const SL=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28],[27,31],[28,32]];
+const KEYS=[0,11,12,13,14,15,16,23,24,25,26,27,28];
+let src='',mode='both',liveOn=true,refLM=null,lmImg=null,lmVid=null,ready=null;
+function sizeLc(){lc.width=W;lc.height=H}
+addEventListener('resize',()=>{W=innerWidth;H=innerHeight;sizeLc()});sizeLc();
+function say(t,ms){msg.innerHTML=t;msg.style.display=t?'block':'none';if(t&&ms)setTimeout(()=>{if(msg.innerHTML===t)say('')},ms)}
+function tip(t){badge.textContent=t;badge.style.display='block';clearTimeout(tipT);tipT=setTimeout(()=>badge.style.display='none',7000)}
+async function startCam(){
+  try{
+    if(stream)stream.getTracks().forEach(t=>t.stop());
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1280},height:{ideal:720}},audio:false});
+    v.srcObject=stream;v.style.transform=facing==='user'?'scaleX(-1)':'none';say('');
+  }catch(e){say('無法開啟相機 😢<br>請用 Safari / Chrome 開啟並允許相機權限。')}
+}
+function apply(){
+  ov.style.transform=`translate(${S.x}px,${S.y}px) rotate(${S.r}rad) scale(${S.s})`;
+  const t=`translate(-50%,-50%) scaleX(${flipped?-1:1})`;oi.style.transform=t;rc.style.transform=t;sk.style.transform=t;
+}
+function fitInit(){const k=Math.min(W/refW,H/refH)*.95;S={x:0,y:0,s:k,r:0};apply()}
+function layers(){
+  ov.style.display='block';
+  if(src==='photo'){ov.style.opacity=1;oi.style.opacity=mode==='skel'?0:$('op').value/100;sk.style.display=mode==='photo'?'none':'block'}
+  else{ov.style.opacity=$('op').value/100;oi.style.opacity=1;sk.style.display='none'}
+}
+function setModeBtn(){document.querySelectorAll('[data-m]').forEach(b=>b.classList.toggle('on',b.dataset.m===mode))}
+function initPose(){
+  if(ready)return ready;
+  ready=(async()=>{
+    const fs=await FilesetResolver.forVisionTasks(WASM);
+    const mk=m=>PoseLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:MODEL},runningMode:m,numPoses:1});
+    lmImg=await mk("IMAGE");lmVid=await mk("VIDEO");
+  })();
+  ready.catch(()=>{ready=null});return ready;
+}
+function drawRef(){
+  sk.width=refW;sk.height=refH;
+  const x=sk.getContext('2d');x.clearRect(0,0,refW,refH);
+  if(!refLM)return;
+  const lw=Math.max(4,Math.max(refW,refH)/150),p=refLM.map(l=>[l.x*refW,l.y*refH]);
+  x.lineCap='round';x.strokeStyle='#ff5a8a';x.lineWidth=lw;
+  SL.forEach(([a,b])=>{x.beginPath();x.moveTo(...p[a]);x.lineTo(...p[b]);x.stroke()});
+  x.fillStyle='#fff';x.beginPath();x.arc(p[0][0],p[0][1],lw*2.2,0,7);x.fill();
+  KEYS.slice(1).forEach(i=>{x.beginPath();x.arc(p[i][0],p[i][1],lw*1.1,0,7);x.fill()});
+}
+function refToScreen(l){
+  let px=(l.x-.5)*refW,py=(l.y-.5)*refH;if(flipped)px=-px;px*=S.s;py*=S.s;
+  const c=Math.cos(S.r),s=Math.sin(S.r);return [px*c-py*s+W/2+S.x,px*s+py*c+H/2+S.y];
+}
+function vidToScreen(l){
+  const vw=v.videoWidth,vh=v.videoHeight,k=Math.max(W/vw,H/vh);
+  let x=l.x*vw*k+(W-vw*k)/2;const y=l.y*vh*k+(H-vh*k)/2;if(facing==='user')x=W-x;return [x,y];
+}
+function setSize(w,h){refW=w;refH=h;for(const e of[oi,rc,sk]){e.style.width=w+'px';e.style.height=h+'px'}}
+
+// ===== 姿勢庫 =====
+// 點順序:頭,左肩,右肩,左肘,右肘,左腕,右腕,左髖,右髖,左膝,右膝,左踝,右踝
+const B=[[50,18],[38,38],[62,38],[32,60],[68,60],[34,82],[66,82],[42,88],[58,88],[41,125],[59,125],[40,162],[60,162]];
+const mod=(o)=>{const p=B.map(a=>a.slice());for(const k in o)p[k]=o[k];return p};
+const POSE={
+ stand:B,
+ hip:mod({3:[26,58],4:[74,58],5:[40,84],6:[60,84]}),
+ hair:mod({4:[72,42],6:[56,16]}),
+ turn:[[53,18],[44,38],[58,38],[40,60],[62,58],[42,80],[58,78],[46,88],[56,88],[44,125],[60,123],[42,162],[64,160]],
+ walk:mod({3:[34,60],4:[66,58],9:[40,124],10:[60,120],11:[34,160],12:[66,150]}),
+ sit:[[50,38],[38,58],[62,58],[34,80],[66,80],[38,104],[62,104],[42,108],[58,108],[36,136],[64,136],[36,166],[64,166]],
+ hugR:mod({4:[70,48],6:[76,36]}),
+ hugL:mod({3:[30,48],5:[24,36]})
+};
+function fig(x,p,cx,s,dy){
+  const base=1300+(dy||0),P=p.map(a=>[cx+(a[0]-50)*s,base-(165-a[1])*s]);
+  x.lineCap='round';x.lineJoin='round';x.setLineDash([]);
+  x.strokeStyle='#fff';x.fillStyle='rgba(255,255,255,.55)';
+  x.shadowColor='rgba(0,0,0,.7)';x.shadowBlur=14;
+  const L=(a,b,w)=>{x.lineWidth=w*s;x.beginPath();x.moveTo(...P[a]);x.lineTo(...P[b]);x.stroke()};
+  L(1,3,7);L(3,5,7);L(2,4,7);L(4,6,7);L(7,9,10);L(9,11,10);L(8,10,10);L(10,12,10);
+  x.lineWidth=6*s;x.beginPath();x.moveTo(...P[1]);x.lineTo(...P[2]);x.lineTo(...P[8]);x.lineTo(...P[7]);x.closePath();x.fill();x.stroke();
+  x.lineWidth=4*s;x.beginPath();x.arc(P[0][0],P[0][1],10*s,0,7);x.fill();x.stroke();
+  x.shadowBlur=0;
+}
+function rr(x,a,b,w,h,r){x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);x.arcTo(a+w,b+h,a,b+h,r);x.arcTo(a,b+h,a,b,r);x.arcTo(a,b,a+w,b,r);x.closePath()}
+function food(x){x.setLineDash([18,14]);x.strokeStyle='#fff';x.fillStyle='rgba(255,255,255,.2)';x.lineWidth=7;x.shadowColor='rgba(0,0,0,.7)';x.shadowBlur=12;x.lineCap='round'}
+function circ(x,cx,cy,r,t){x.beginPath();x.arc(cx,cy,r,0,7);x.fill();x.stroke();lab(x,cx,cy,t)}
+function lab(x,cx,cy,t){if(!t)return;x.save();x.setLineDash([]);x.fillStyle='#fff';x.font='bold 44px -apple-system,sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText(t,cx,cy);x.restore()}
+const G=(...f)=>x=>f.forEach(a=>fig(x,POSE[a[0]],a[1],a[2],a[3]));
+const T=[
+ {c:'單人',n:'自然站姿',tip:'手機放胸口高度,離約兩步;頭放在上方,腳留在畫面內',d:G(['stand',500,7.2])},
+ {c:'單人',n:'叉腰',tip:'手機略低於胸口,往上微仰,腿會顯得更長',d:G(['hip',500,7.2])},
+ {c:'單人',n:'手摸頭髮',tip:'手放髮側自然撥,眼睛看斜前方',d:G(['hair',500,7.2])},
+ {c:'單人',n:'側身回眸',tip:'身體側 45 度,頭轉向鏡頭,重心放在後腳',d:G(['turn',500,7.2])},
+ {c:'單人',n:'走路',tip:'邊走邊拍,連拍挑最好的一張',d:G(['walk',500,7.2])},
+ {c:'單人',n:'坐姿',tip:'坐階梯或椅子,手機放略高處往下拍',d:G(['sit',500,7.2])},
+ {c:'雙人',n:'並肩站',tip:'兩人身體略往內靠,頭的高度錯開一點',d:G(['stand',330,6.2],['stand',670,6.2])},
+ {c:'雙人',n:'勾肩',tip:'左邊的人手搭右邊的肩,靠近一點才自然',d:G(['hugR',405,6.2],['hugL',595,6.2])},
+ {c:'雙人',n:'一站一坐',tip:'坐的人放在前面,站的人略往後',d:G(['sit',330,6.2],['stand',670,6.2])},
+ {c:'雙人',n:'一前一後',tip:'前面的人側身,後面的人從旁探頭',d:G(['turn',640,5.4,-80],['turn',380,6.4])},
+ {c:'多人',n:'三人並排',tip:'中間的人稍微站前一步,畫面更有層次',d:G(['stand',250,5.4],['stand',500,5.4],['stand',750,5.4])},
+ {c:'多人',n:'三人錯落',tip:'中間的人退後,兩側的人站前面',d:G(['stand',260,5.6],['stand',740,5.6],['stand',500,5.0,-60])},
+ {c:'多人',n:'四人兩排',tip:'後排站在前排兩人的空隙中間',d:G(['stand',370,4.2,-150],['stand',630,4.2,-150],['stand',250,5.0],['stand',750,5.0])},
+ {c:'多人',n:'五人兩排',tip:'後排三人,前排兩人,手機往後退一點才拍得進',d:G(['stand',230,4.0,-170],['stand',500,4.0,-170],['stand',770,4.0,-170],['stand',360,5.0],['stand',640,5.0])},
+ {c:'美食',n:'單盤俯拍',tip:'手機與桌面平行,從正上方往下拍,盤子放進圓框',d:x=>{food(x);circ(x,500,700,340,'主餐')}},
+ {c:'美食',n:'三角構圖',tip:'主餐最大、放最前,配菜和飲料排成三角形',d:x=>{food(x);circ(x,500,620,270,'主餐');circ(x,230,1030,150,'配菜');circ(x,790,1080,120,'飲料')}},
+ {c:'美食',n:'滿桌俯拍',tip:'把四道菜排成方形,手機升高讓全部入鏡',d:x=>{food(x);[[300,430],[700,430],[300,930],[700,930]].forEach((p,i)=>circ(x,p[0],p[1],190,'菜'+(i+1)));circ(x,500,680,100,'中央')}},
+ {c:'美食',n:'45度側拍',tip:'手機斜 45 度,高的杯子放後面當背景',d:x=>{food(x);x.beginPath();x.ellipse(500,980,380,170,0,0,7);x.fill();x.stroke();lab(x,500,980,'主餐');rr(x,620,440,200,380,40);x.fill();x.stroke();lab(x,720,630,'杯子')}},
+ {c:'美食',n:'手拿飲料',tip:'手臂從畫面下方伸入,杯子放在畫面中央偏上',d:x=>{food(x);x.save();x.lineWidth=110;x.globalAlpha=.9;x.beginPath();x.moveTo(700,1400);x.lineTo(560,1040);x.stroke();x.restore();rr(x,440,480,200,500,50);x.fill();x.stroke();lab(x,540,730,'飲料')}}
+];
+function render(x,t){x.clearRect(0,0,1000,1400);x.save();t.d(x);x.restore()}
+function useTemplate(t){
+  setSize(1000,1400);rc.width=1000;rc.height=1400;render(rc.getContext('2d'),t);
+  src='tpl';refLM=null;oi.style.display='none';rc.style.display='block';hasImg=true;$('modes').style.display='none';
+  $('op').value=80;$('opv').textContent='80%';fitInit();layers();$('sheet').style.display='none';$('lib').classList.remove('on');tip(t.n+':'+t.tip);
+}
+const cats=['單人','雙人','多人','美食'];let cat='單人';const thumbs={};
+function thumb(t){
+  if(thumbs[t.n])return thumbs[t.n];
+  const o=document.createElement('canvas');o.width=1000;o.height=1400;const x=o.getContext('2d');render(x,t);
+  const c=document.createElement('canvas');c.width=200;c.height=280;c.getContext('2d').drawImage(o,0,0,200,280);return thumbs[t.n]=c;
+}
+function showList(){
+  const tabs=$('tabs');tabs.innerHTML='';
+  cats.forEach(c=>{const b=document.createElement('button');b.className='btn'+(c===cat?' on':'');b.textContent=c;b.onclick=()=>{cat=c;showList()};tabs.appendChild(b)});
+  const cl=document.createElement('button');cl.className='btn';cl.style.marginLeft='auto';cl.textContent='✕';cl.onclick=()=>{$('sheet').style.display='none';$('lib').classList.remove('on')};tabs.appendChild(cl);
+  const list=$('list');list.innerHTML='';
+  T.filter(t=>t.c===cat).forEach(t=>{
+    const d=document.createElement('div');d.className='card';
+    const c=document.createElement('canvas');c.width=200;c.height=280;c.getContext('2d').drawImage(thumb(t),0,0);
+    d.appendChild(c);d.appendChild(document.createTextNode(t.n));d.onclick=()=>useTemplate(t);list.appendChild(d);
+  });
+}
+$('lib').onclick=()=>{const s=$('sheet');const on=s.style.display!=='flex';s.style.display=on?'flex':'none';$('lib').classList.toggle('on',on);if(on)showList()};
+
+// ===== 參考圖 =====
+$('pick').onclick=()=>$('file').click();
+$('file').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  const u=URL.createObjectURL(f),im=new Image();
+  im.onload=async()=>{
+    src='photo';mode='both';refLM=null;setSize(im.naturalWidth,im.naturalHeight);oi.src=u;oi.style.display='block';rc.style.display='none';
+    hasImg=true;$('op').value=50;$('opv').textContent='50%';$('modes').style.display='flex';setModeBtn();fitInit();drawRef();layers();
+    $('sheet').style.display='none';$('lib').classList.remove('on');
+    say('分析參考圖姿勢中…<br>(第一次要下載模型,稍等一下)');
+    try{await initPose();const r=lmImg.detect(im);
+      if(r.landmarks&&r.landmarks[0]){refLM=r.landmarks[0];drawRef();say('')}else say('找不到人物 😅<br>半透明照片仍可使用',3500)
+    }catch(err){say('姿勢模型載入失敗(需要網路)<br>半透明照片仍可使用',3500)}
+  };
+  im.src=u;e.target.value='';
+};
+document.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{mode=b.dataset.m;setModeBtn();layers()});
+$('live').onclick=async()=>{
+  liveOn=!liveOn;$('live').classList.toggle('on',liveOn);
+  if(!liveOn){lc.getContext('2d').clearRect(0,0,W,H);score.style.display='none';return}
+  try{say('載入姿勢模型…');await initPose();say('')}catch(e){say('姿勢模型載入失敗',3000);liveOn=false;$('live').classList.remove('on')}
+};
+$('op').oninput=e=>{$('opv').textContent=e.target.value+'%';if(hasImg)layers()};
+$('flip').onclick=()=>{flipped=!flipped;$('flip').classList.toggle('on',flipped);apply()};
+$('gridBtn').onclick=()=>{const g=$('grid');const on=g.style.display!=='block';g.style.display=on?'block':'none';$('gridBtn').classList.toggle('on',on)};
+$('cam').onclick=()=>{facing=facing==='environment'?'user':'environment';startCam()};
+$('reset').onclick=()=>{if(hasImg)fitInit()};
+const hide=$('hide');
+hide.addEventListener('pointerdown',()=>{ov.style.visibility='hidden'});
+['pointerup','pointercancel','pointerleave'].forEach(t=>hide.addEventListener(t,()=>{ov.style.visibility='visible'}));
+
+// ===== 手勢 =====
+const P=new Map();let g0=null;const st=$('stage');
+st.addEventListener('pointerdown',e=>{st.setPointerCapture(e.pointerId);P.set(e.pointerId,{x:e.clientX,y:e.clientY});g0=null});
+st.addEventListener('pointermove',e=>{
+  if(!P.has(e.pointerId)||!hasImg)return;
+  const prev=P.get(e.pointerId);
+  if(P.size===1){S.x+=e.clientX-prev.x;S.y+=e.clientY-prev.y;P.set(e.pointerId,{x:e.clientX,y:e.clientY});apply();return}
+  P.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  const [a,b]=[...P.values()],dx=b.x-a.x,dy=b.y-a.y,dist=Math.hypot(dx,dy),ang=Math.atan2(dy,dx);
+  if(!g0){g0={dist,ang,s:S.s,r:S.r}}else{S.s=Math.max(.05,g0.s*dist/g0.dist);S.r=g0.r+(ang-g0.ang);apply()}
+});
+const up=e=>{P.delete(e.pointerId);g0=null};
+st.addEventListener('pointerup',up);st.addEventListener('pointercancel',up);
+
+// ===== 拍照(只含實景) =====
+$('shot').onclick=()=>{
+  if(!v.videoWidth){say('相機尚未開啟',1500);return}
+  const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;
+  const x=c.getContext('2d');
+  if(facing==='user'){x.translate(c.width,0);x.scale(-1,1)}
+  x.drawImage(v,0,0);
+  $('ri').src=c.toDataURL('image/jpeg',.92);$('res').style.display='flex';
+};
+$('back').onclick=()=>{$('res').style.display='none'};
+let last=0;
+function loop(t){
+  requestAnimationFrame(loop);
+  if(!liveOn||!lmVid||!v.videoWidth||t-last<70)return;
+  last=t;const x=lc.getContext('2d');x.clearRect(0,0,W,H);
+  let r;try{r=lmVid.detectForVideo(v,t)}catch(e){return}
+  const lm=r.landmarks&&r.landmarks[0];
+  if(!lm){if(refLM){score.textContent='看不到人物';score.style.display='block'}return}
+  const p=lm.map(vidToScreen);let col='#4ade80';
+  if(refLM&&src==='photo'){
+    const q=refLM.map(refToScreen);
+    const tor=Math.hypot((p[11][0]+p[12][0])/2-(p[23][0]+p[24][0])/2,(p[11][1]+p[12][1])/2-(p[23][1]+p[24][1])/2)||1;
+    let sum=0;KEYS.forEach(i=>{sum+=Math.hypot(p[i][0]-q[i][0],p[i][1]-q[i][1])});
+    const sc=Math.max(0,Math.min(100,Math.round(100-(sum/KEYS.length)/tor*120)));
+    col=sc>=80?'#4ade80':sc>=50?'#facc15':'#f87171';
+    score.textContent='姿勢吻合度 '+sc+'%'+(sc>=80?' ✅':'');score.style.display='block';
+  }else score.style.display='none';
+  x.lineCap='round';x.strokeStyle=col;x.lineWidth=5;
+  SL.forEach(([a,b])=>{x.beginPath();x.moveTo(...p[a]);x.lineTo(...p[b]);x.stroke()});
+  x.fillStyle='#fff';KEYS.forEach(i=>{x.beginPath();x.arc(p[i][0],p[i][1],i===0?9:5,0,7);x.fill()});
+}
+requestAnimationFrame(loop);
+initPose().catch(()=>{});
+startCam();
+</script>
+</body>
+</html>
