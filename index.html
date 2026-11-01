@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>疊影對位相機</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#000;--fg:#fff;--panel:rgba(20,20,24,.78);--accent:#ff5a8a}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,"PingFang TC","Noto Sans TC",sans-serif;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+#stage{position:absolute;inset:0;overflow:hidden}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#ov{position:absolute;left:50%;top:50%;transform-origin:0 0;pointer-events:none;display:none}
+#ov img{display:block;max-width:none;transform:translate(-50%,-50%)}
+#grid{position:absolute;inset:0;pointer-events:none;display:none;background:
+linear-gradient(to right,transparent 33.2%,rgba(255,255,255,.4) 33.3%,transparent 33.5%,transparent 66.5%,rgba(255,255,255,.4) 66.6%,transparent 66.8%),
+linear-gradient(to bottom,transparent 33.2%,rgba(255,255,255,.4) 33.3%,transparent 33.5%,transparent 66.5%,rgba(255,255,255,.4) 66.6%,transparent 66.8%)}
+#top{position:absolute;left:0;right:0;top:env(safe-area-inset-top,0px);display:flex;gap:8px;padding:10px;justify-content:space-between}
+.btn{background:var(--panel);color:var(--fg);border:0;border-radius:20px;padding:9px 14px;font-size:14px;backdrop-filter:blur(8px)}
+.btn.on{background:var(--accent)}
+#bar{position:absolute;left:0;right:0;bottom:0;padding:10px 14px calc(14px + env(safe-area-inset-bottom,0px));background:linear-gradient(transparent,rgba(0,0,0,.7))}
+#row1{display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:13px}
+#row1 input{flex:1;accent-color:var(--accent)}
+#row2{display:flex;align-items:center;justify-content:space-around}
+#shot{width:68px;height:68px;border-radius:50%;border:4px solid #fff;background:rgba(255,255,255,.25)}
+#shot:active{background:#fff}
+#modes{display:flex;gap:6px;justify-content:center;margin-bottom:10px}
+#msg{position:absolute;left:20px;right:20px;top:40%;text-align:center;background:var(--panel);padding:16px;border-radius:14px;font-size:15px;line-height:1.6;display:none}
+#res{position:absolute;inset:0;background:#000;display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;touch-action:auto;z-index:5}
+#res img{max-width:92%;max-height:75%;border-radius:8px;-webkit-user-select:auto;user-select:auto;-webkit-touch-callout:default}
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="v" autoplay playsinline muted></video>
+  <div id="grid"></div>
+  <div id="ov"><img id="oi" alt=""></div>
+</div>
+<div id="top">
+  <button class="btn" id="pick">🖼 選參考圖</button>
+  <button class="btn" id="gridBtn">井字格</button>
+  <button class="btn" id="flip">翻轉參考圖</button>
+  <button class="btn" id="cam">🔄 鏡頭</button>
+</div>
+<div id="msg"></div>
+<div id="bar">
+  <div id="modes">
+    <button class="btn on" data-m="alpha">半透明</button>
+    <button class="btn" data-m="edge">線稿</button>
+    <button class="btn" id="hide">按住對比</button>
+  </div>
+  <div id="row1"><span>透明度</span><input type="range" id="op" min="10" max="90" value="50"><span id="opv">50%</span></div>
+  <div id="row2">
+    <button class="btn" id="reset">重置位置</button>
+    <button id="shot" aria-label="拍照"></button>
+    <span style="width:84px;font-size:12px;text-align:center;opacity:.8">單指拖曳<br>雙指縮放旋轉</span>
+  </div>
+</div>
+<div id="res"><img id="ri" alt=""><div style="font-size:14px">長按照片 → 儲存到相簿</div><button class="btn" id="back">← 繼續拍</button></div>
+<input type="file" id="file" accept="image/*" hidden>
+<script>
+const $=id=>document.getElementById(id);
+const v=$('v'),ov=$('ov'),oi=$('oi'),msg=$('msg');
+let facing='environment',stream=null,mode='alpha',srcURL=null,edgeURL=null,flipped=false;
+let S={x:0,y:0,s:1,r:0};
+
+function say(t){msg.innerHTML=t;msg.style.display=t?'block':'none'}
+async function startCam(){
+  try{
+    if(stream)stream.getTracks().forEach(t=>t.stop());
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1920},height:{ideal:1080}},audio:false});
+    v.srcObject=stream;v.style.transform=facing==='user'?'scaleX(-1)':'none';say('');
+  }catch(e){
+    say('無法開啟相機 😢<br>請用手機瀏覽器(Safari / Chrome)直接開啟此頁,並允許相機權限。<br>仍可先選參考圖預覽疊圖效果。');
+  }
+}
+function apply(){
+  ov.style.transform=`translate(${S.x}px,${S.y}px) rotate(${S.r}rad) scale(${S.s*(flipped?1:1)})`;
+  oi.style.transform=`translate(-50%,-50%) scaleX(${flipped?-1:1})`;
+}
+function fitInit(){
+  const w=oi.naturalWidth,h=oi.naturalHeight,k=Math.min(innerWidth/w,innerHeight/h);
+  S={x:0,y:0,s:k,r:0};apply();
+}
+function makeEdge(img){
+  const m=700,k=Math.min(1,m/Math.max(img.naturalWidth,img.naturalHeight));
+  const w=Math.round(img.naturalWidth*k),h=Math.round(img.naturalHeight*k);
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  const x=c.getContext('2d');x.drawImage(img,0,0,w,h);
+  const d=x.getImageData(0,0,w,h),p=d.data,g=new Float32Array(w*h);
+  for(let i=0;i<w*h;i++)g[i]=.3*p[i*4]+.59*p[i*4+1]+.11*p[i*4+2];
+  const o=x.createImageData(w,h),q=o.data;
+  for(let j=1;j<h-1;j++)for(let i=1;i<w-1;i++){
+    const a=j*w+i;
+    const gx=-g[a-w-1]+g[a-w+1]-2*g[a-1]+2*g[a+1]-g[a+w-1]+g[a+w+1];
+    const gy=-g[a-w-1]-2*g[a-w]-g[a-w+1]+g[a+w-1]+2*g[a+w]+g[a+w+1];
+    const m2=Math.min(255,Math.hypot(gx,gy)*1.2);
+    const t=m2>60?Math.min(255,(m2-60)*3):0;
+    q[a*4]=255;q[a*4+1]=240;q[a*4+2]=80;q[a*4+3]=t;
+  }
+  x.putImageData(o,0,0);return c.toDataURL('image/png');
+}
+function show(){
+  if(!srcURL)return;
+  oi.src=mode==='edge'?edgeURL:srcURL;
+  oi.style.width=(oi.dataset.w||'auto');
+  ov.style.display='block';
+  ov.style.opacity=mode==='edge'?Math.min(1,$('op').value/60):$('op').value/100;
+}
+$('pick').onclick=()=>$('file').click();
+$('file').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  const u=URL.createObjectURL(f),im=new Image();
+  im.onload=()=>{srcURL=u;edgeURL=makeEdge(im);
+    oi.onload=()=>{fitInit();oi.onload=null};
+    oi.style.width=im.naturalWidth+'px';oi.style.height=im.naturalHeight+'px';
+    mode='alpha';document.querySelectorAll('[data-m]').forEach(b=>b.classList.toggle('on',b.dataset.m==='alpha'));
+    show();};
+  im.src=u;e.target.value='';
+};
+document.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{
+  mode=b.dataset.m;document.querySelectorAll('[data-m]').forEach(x=>x.classList.toggle('on',x===b));
+  if(srcURL){oi.src=mode==='edge'?edgeURL:srcURL;show()}
+});
+$('op').oninput=e=>{$('opv').textContent=e.target.value+'%';if(srcURL)show()};
+$('flip').onclick=()=>{flipped=!flipped;$('flip').classList.toggle('on',flipped);apply()};
+$('gridBtn').onclick=()=>{const g=$('grid');const on=g.style.display!=='block';g.style.display=on?'block':'none';$('gridBtn').classList.toggle('on',on)};
+$('cam').onclick=()=>{facing=facing==='environment'?'user':'environment';startCam()};
+$('reset').onclick=()=>{if(srcURL)fitInit()};
+const hide=$('hide');
+const hd=()=>{ov.style.visibility='hidden'},sh=()=>{ov.style.visibility='visible'};
+hide.addEventListener('pointerdown',hd);['pointerup','pointercancel','pointerleave'].forEach(t=>hide.addEventListener(t,sh));
+
+// gestures
+const P=new Map();let g0=null;
+const st=$('stage');
+st.addEventListener('pointerdown',e=>{st.setPointerCapture(e.pointerId);P.set(e.pointerId,{x:e.clientX,y:e.clientY});g0=null});
+st.addEventListener('pointermove',e=>{
+  if(!P.has(e.pointerId)||!srcURL)return;
+  const prev=P.get(e.pointerId);
+  if(P.size===1){S.x+=e.clientX-prev.x;S.y+=e.clientY-prev.y;P.set(e.pointerId,{x:e.clientX,y:e.clientY});apply();return}
+  P.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  const [a,b]=[...P.values()],dx=b.x-a.x,dy=b.y-a.y,dist=Math.hypot(dx,dy),ang=Math.atan2(dy,dx);
+  if(!g0){g0={dist,ang,s:S.s,r:S.r}}
+  else{S.s=Math.max(.05,g0.s*dist/g0.dist);S.r=g0.r+(ang-g0.ang);apply()}
+});
+const up=e=>{P.delete(e.pointerId);g0=null};
+st.addEventListener('pointerup',up);st.addEventListener('pointercancel',up);
+
+// capture (camera frame only, no overlay)
+$('shot').onclick=()=>{
+  if(!v.videoWidth){say('相機尚未開啟');setTimeout(()=>say(''),1500);return}
+  const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;
+  const x=c.getContext('2d');
+  if(facing==='user'){x.translate(c.width,0);x.scale(-1,1)}
+  x.drawImage(v,0,0);
+  $('ri').src=c.toDataURL('image/jpeg',.92);$('res').style.display='flex';
+};
+$('back').onclick=()=>{$('res').style.display='none'};
+startCam();
+</script>
+</body>
+</html>
